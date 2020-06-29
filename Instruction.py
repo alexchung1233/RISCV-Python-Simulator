@@ -101,6 +101,7 @@ class InstructionParser(object):
     def __init__(self):
         self.instructionSet = {
             'rtype': ['add', 'sub', 'and', 'or', 'jr', 'nor', 'slt'],
+            'itype': ['addi', 'subi', 'ori', 'bne', 'beq', 'lw', 'sw'],
         }
 
     def parseFile(self, filename):
@@ -121,9 +122,16 @@ class InstructionParser(object):
         #if rtype then make into a rtype instruction
         if instr in self.instructionSet['rtype']:
             return self.createRTypeInstruction(s)
+        elif instr in self.instructionSet['itype']:
+            return self.createITypeInstruction(s)
         else:
             raise SyntaxError("Invalid parse instruction")
 
     def createRTypeInstruction(self, s):
         #each individual character in the str represents something
         return Instruction(op=s[0], dest=s[1], s1=s[2], s2=s[3], regRead=1, regWrite=1, aluop=1)
+
+    def createITypeInstruction(self, s):
+        if s[0] == 'bne' or s[0] == 'beq':
+            return Instruction(op=s[0], s1=s[1], s2=s[2], immed=s[3], regRead=1, aluop=1)
+        return Instruction(op=s[0], dest=s[1], s1=s[2], immed=s[3], regRead=1, regWrite=1, aluop=1)

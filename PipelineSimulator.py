@@ -10,10 +10,7 @@ class PipelineSimulator(object):
     def __init__(self, instrCollection):
         self.instrCount = 0
         self.cycles = 0
-        self.hazardList = []
         self.__done = False
-        self.branched = False
-        self.stall = False
 
         # self.pipeline is a list<PipelineStage>
         # with the mapping of:
@@ -30,8 +27,8 @@ class PipelineSimulator(object):
             DataStage(Nop, self),
         ]
 
-        # ex: {'$r0' : 0, '$r1' : 0 ... '$r31' : 0 }
-        self.registers = collections.OrderedDict([("$r%s" % x, 0) for x in range(32)])
+        # ex: {'x0' : 0, 'x1' : 0 ... 'x2' : 0 }
+        self.registers = dict([("x%s" % x, 0) for x in range(32)])
 
         # set up the main memory construct, a list index starting at 0
         # and continuing to 0xffc
@@ -54,13 +51,7 @@ class PipelineSimulator(object):
             self.mainmemory[0x1000 + y] = instr
             # each instruction is 4 bytes
             y += 4
-
-
-        #set initial value for testing
-        self.registers['$r5'] = 5
-        self.registers['$r0'] = 5
-
-
+    ''' pipeline
     def step(self):
         self.cycles += 1
         # shift the instructions to the next logical place
@@ -69,52 +60,77 @@ class PipelineSimulator(object):
 
         # MUST KEEP THIS ORDER
         self.pipeline[1] = WriteStage(self.pipeline[4].instr, self)
-        if self.stall:
-            self.pipeline[4] = DataStage(Nop, self)
-            self.stall = False
-        else:
-            self.pipeline[4] = DataStage(self.pipeline[3].instr, self)
-            self.pipeline[3] = ExecStage(self.pipeline[2].instr, self)
-            self.pipeline[2] = ReadStage(self.pipeline[0].instr, self)
-            self.pipeline[0] = FetchStage(None, self)
+        self.pipeline[4] = DataStage(self.pipeline[3].instr, self)
+        self.pipeline[3] = ExecStage(self.pipeline[2].instr, self)
+        self.pipeline[2] = ReadStage(self.pipeline[0].instr, self)
+        self.pipeline[0] = FetchStage(None, self)
 
         # call advance on each instruction in the pipeline
         for pi in self.pipeline:
             pi.advance()
-        # now that everything is done, remove the register from
-        # the hazard list
-
         self.checkDone()
-
-        # if we stalled our branched we didn't want to load a new
-        # so keep the program counter where it is
-        if self.stall or self.branched:
-            self.programCounter -= 4
-            self.branched = False
-
+    '''
     def checkDone(self):
         """ Check if we are done and set __done variable """
-        #checks if the instructions in the pipeline are nop are not
-        #if all nop then we are done
+        # checks if the instructions in the pipeline are nop are not
+        # if all nop then we are done
         self.__done = True
         for pi in self.pipeline:
             if pi.instr is not Nop:
                 self.__done = False
 
+    def single_cycle(self):
+        self.load_next_instruction()
+        self.debug()
+
+        self.pipeline[2] = ReadStage(self.pipeline[0].instr, self)
+        self.pipeline[2].advance()
+        self.pipeline[0] = FetchStage(None, self)
+        self.debug()
+
+        self.pipeline[3] = ExecStage(self.pipeline[2].instr, self)
+        self.pipeline[3].advance()
+        self.pipeline[2] = ReadStage(None, self)
+        self.debug()
+
+        self.pipeline[4] = DataStage(self.pipeline[3].instr, self)
+        self.pipeline[4].advance()
+        self.pipeline[3] = ExecStage(None, self)
+        self.debug()
+
+        self.pipeline[1] = WriteStage(self.pipeline[4].instr, self)
+        self.pipeline[1].advance()
+        self.pipeline[4] = DataStage(None, self)
+        self.debug()
+
+    def load_next_instruction(self):
+        self.__done = False
+        self.pipeline[1] = DataStage(None, self)
+        self.pipeline[0].advance()
+        if self.pipeline[0].instr is Nop:
+            self.__done = True
+
     def run(self):
         """ Run the simulator, call step until we are done """
+
+        while not self.__done:
+            self.single_cycle()
+
+        """
         while not self.__done:
             self.step()
             self.debug()
+            """
 
-    ### DEBUGGING INFORMATION PRINTING ###
+    """ DEBUGGING INFORMATION PRINTING """
+
     def debug(self):
         print("######################## debug ###########################")
         # self.printStageCollection()
         self.printRegFile()
         print("\n<ProgramCounter>", self.programCounter)
         self.printPipeline()
-        #print("<CPI> : ", float(self.cycles) / float(self.instrCount))
+        # print("<CPI> : ", float(self.cycles) / float(self.instrCount))
 
     def printPipeline(self):
         print("\n<Pipeline>")
@@ -124,15 +140,15 @@ class PipelineSimulator(object):
         print(repr(self.pipeline[4]))
         print(repr(self.pipeline[1]))
 
-
     def printRegFile(self):
-        #"""
+        # """
         print("\n<Register File>")
-        for k,v in sorted(self.registers.items()):
+        for k, v in sorted(self.registers.items()):
             if len(k) != 3:
-                print(k, " : " , v,)
-            else :
-                print("\n",k, " : ", v,)
+                print(k, " : ", v, )
+            else:
+                print("\n", k, " : ", v, )
+
     '''
     def printStageCollection(self):
         print("<Instruction Collection>")
@@ -167,7 +183,7 @@ class FetchStage(PipelineStage):
             self.instr = self.simulator.mainmemory[self.simulator.programCounter]
         else:
             self.instr = Nop
-        # increment program counter
+        # increment program counter to the next byte
         self.simulator.programCounter += 4
 
     def __str__(self):
@@ -180,11 +196,15 @@ class ReadStage(PipelineStage):
         Read the necessary registers from the registers file
         used in this instruction
         """
-
         if (self.instr.regRead):
             self.instr.source1RegValue = self.simulator.registers[self.instr.s1]
-            #for now two registers no immediate
-            if self.instr.s2:
+            if self.instr.immed:
+                # check to see if it is a hex value
+                if "x0" in self.instr.immed:
+                    self.instr.source2RegValue = int(self.instr.immed, 16)
+                else:
+                    self.instr.source2RegValue = int(self.instr.immed)
+            elif self.instr.s2:
                 self.instr.source2RegValue = self.simulator.registers[self.instr.s2]
 
     def __str__(self):
@@ -197,7 +217,8 @@ class ExecStage(PipelineStage):
         Execute the instruction according to its mapping of
         assembly operation to Python operation
         """
-        #evalute instruction (assuming its an arithmetic operation)
+        # evalute instruction (assuming its an arithmetic operation)
+        print(self.instr.source1RegValue)
         if self.instr is not Nop:
             self.instr.result = eval(
                 "%d %s %d" % (
@@ -226,12 +247,7 @@ class WriteStage(PipelineStage):
         Write to the register file
         """
         if self.instr.regWrite:
-            if self.instr.dest == '$r0':
-                # Edit: don't raise exception just ignore it
-                # raise Exception('Cannot assign to register $r0')
-                pass
-            # writes the result of instruction to the destination register
-            elif self.instr.dest:
+            if self.instr.dest != 'x0':
                 self.simulator.registers[self.instr.dest] = self.instr.result
 
     def __str__(self):
