@@ -5,6 +5,8 @@ class Instruction(object):
 
         self.source1RegValue = None
         self.source2RegValue = None
+
+        self.operation = None
         self.values = {
                        'op': None,
                        'dest': None,

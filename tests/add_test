@@ -1,3 +1,2 @@
-addi x5,x5,5
-addi x6,x6,5
-add x7,x6,x5
+add x10,x6,x5
+sub x10, x10,x5
