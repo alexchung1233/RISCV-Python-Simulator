@@ -1,13 +1,22 @@
 path = 'tests/add_test'
-funct7_decode = {
-    '0000000': 'add',
-    '0100000': 'sub'
+funct7_and_funct3_decode = {
+    '0000000000': 'add',
+    '0100000000': 'sub',
+    '0000000111': 'and',
+    '0000000110': 'or',
+    '0000000100': 'xor',
 }
-funct3_decode = {
-    '000': 'arithmetic',
+
+itype_funct3_decode = {
+    '000': 'addi',
+    '100': 'xori',
+    '110': 'or',
+    '111': 'andi',
 }
+
 opcode_decode = {
     '0110011': 'R-type',
+    '0010011': 'I-type',
 }
 
 class RTypeInstruction:
@@ -18,7 +27,7 @@ class RTypeInstruction:
         self.source2RegValue = None
 
         #fields
-        self.func7 = None
+        self.funct7 = None
         self.rs2 = None
         self.rs1 = None
         self.funct3 = None
@@ -27,20 +36,26 @@ class RTypeInstruction:
 
         self.funct7_mapping = {
             'add': '0000000',
+            'and': '0000000',
+            'or': '0000000',
+            'xor': '0000000',
+            'sll': '0000000',
+            'slt': '0000000',
             'sub': '0100000'
         }
         self.funct3_mapping = {
             'add': '000',
-            'sub': '000'
-        }
-        self.opcode_mapping = {
-            'add': '0110011',
-            'sub': '0110011'
+            'sub': '000',
+            'sll': '001',
+            'slt': '010',
+            'xor': '100',
+            'or': '110',
+            'and': '111'
         }
 
         self.funct7 = self.funct7_mapping[s[0]]
         self.funct3 = self.funct3_mapping[s[0]]
-        self.opcode = self.opcode_mapping[s[0]]
+        self.opcode = '0110011'
 
         # converts to binary of fixed length 5
         self.rd = bin(int(s[1][1:])).replace("0b", "").zfill(5)
@@ -54,6 +69,43 @@ class RTypeInstruction:
     def __repr__(self):
         return self.instruction_repr
 
+class ITypeInstruction:
+    def __init__(self, s):
+        self.result = None
+
+        self.source1RegValue = None
+        self.source2RegValue = None
+
+        #fields
+        self.imm = None
+        self.rs1 = None
+        self.funct3 = None
+        self.rd = None
+        self.opcode = None
+
+
+        self.funct3_mapping = {
+            'addi': '000',
+            'slti': '',
+            'sltiu': '',
+            'xori':  '100',
+            'or': '110',
+            'andi': '111',
+
+        }
+
+        self.funct3 = self.funct3_mapping[s[0]]
+        self.opcode = '0010011'
+
+        # converts to binary of fixed length 5
+        self.rd = bin(int(s[1][1:])).replace("0b", "").zfill(5)
+        self.rs1 = bin(int(s[2][1:])).replace("0b", "").zfill(5)
+
+        self.imm = bin(int(s[3])).replace("0b", "").zfill(12)
+        self.instruction_repr = self.imm + self.rs1 + self.funct3 + self.rd + self.opcode
+
+    def __repr__(self):
+        return self.instruction_repr
 
 class Nop():
     pass
@@ -62,8 +114,8 @@ class Nop():
 class InstructionParser(object):
     def __init__(self):
         self.instructionSet = {
-            'rtype': ['add', 'sub', 'and', 'or', 'jr', 'nor', 'slt'],
-            'itype': ['addi', 'subi', 'ori', 'bne', 'beq', 'lw', 'sw'],
+            'rtype': ['add', 'sub', 'and', 'or', 'jr', 'nor', 'slt', 'xor'],
+            'itype': ['addi', 'ori', 'andi', 'xori', 'bne', 'beq', 'lw', 'sw'],
         }
 
     def parse(self, s):
@@ -75,6 +127,8 @@ class InstructionParser(object):
         # if rtype then make into a rtype instruction
         if instr in self.instructionSet['rtype']:
             return RTypeInstruction(s)
+        elif instr in self.instructionSet['itype']:
+            return ITypeInstruction(s)
         else:
             raise SyntaxError("Invalid parse instruction")
 
@@ -88,11 +142,12 @@ class InstructionParser(object):
         filename = 'bin_dump'
         with open(filename, 'w') as f:
             for instr in instrCollection:
-                f.write(("%s,\n" % instr))
+                f.write(("%s\n" % instr))
 
 class PipelineSimulator(object):
     operations = {'add': '+', 'addi': '+', 'sub': '-', 'subi': '-',
-                  'and': '&', 'andi': '&', 'or': '|', 'ori': '|'}
+                  'and': '&', 'andi': '&', 'or': '|', 'ori': '|',
+                  'xor': '^', 'xori': '^'}
 
     # instrCollection object passed in from Instruction parser
     def __init__(self, instrCollection):
@@ -139,9 +194,6 @@ class PipelineSimulator(object):
             self.mainmemory[0x1000 + y] = instr.instruction_repr
             # each instruction is 4 bytes
             y += 4
-        self.registers[5][1] = 5
-        self.registers[6][1] = 5
-
 
     ''' pipeline
     def step(self):
@@ -166,7 +218,7 @@ class PipelineSimulator(object):
         filename = 'bin_dump'
         with open(filename, 'w') as f:
             for location, instr in self.mainmemory:
-                f.write(("%d: %s,\n" % location, instr))
+                f.write(("%d: %s\n" % location, instr))
 
     def checkDone(self):
         """ Check if we are done and set __done variable """
@@ -268,7 +320,8 @@ class PipelineInstruction():
         self.dest = None
 
         #fields
-        self.func7 = None
+        self.imm = None
+        self.funct7 = None
         self.rs2 = None
         self.rs1 = None
         self.funct3 = None
@@ -318,15 +371,44 @@ class ReadStage(PipelineStage):
         if self.instr is not None:
             self.instr.opcode = self.instr.binary[25:]
             if opcode_decode[self.instr.opcode] == 'R-type':
-                self.instr.funct3 = self.instr.binary[17:20]
-                if funct3_decode[self.instr.funct3] == 'arithmetic':
-                    self.instr.funct7 = self.instr.binary[0:7]
-                    if funct7_decode[self.instr.funct7] == 'add':
-                        self.instr.operation = 'add'
-                    elif funct7_decode[self.instr.funct7] == 'sub':
-                        self.instr.operation = 'sub'
-                self.instr.source1RegValue = self.simulator.registers[int(self.instr.binary[12:17], 2)][1]
-                self.instr.source2RegValue = self.simulator.registers[int(self.instr.binary[7:12], 2)][1]
+                self.decode_rtype()
+            elif opcode_decode[self.instr.opcode] == 'I-type':
+                self.decode_itype()
+            else:
+                raise SyntaxError("Invalid opcode")
+
+    def decode_rtype(self):
+        self.instr.funct3 = self.instr.binary[17:20]
+        self.instr.funct7 = self.instr.binary[0:7]
+        funct7_and_funct3 = self.instr.funct7 + self.instr.funct3
+        if funct7_and_funct3_decode[funct7_and_funct3] == 'add':
+            self.instr.operation = 'add'
+        elif funct7_and_funct3_decode[funct7_and_funct3] == 'sub':
+            self.instr.operation = 'sub'
+        elif funct7_and_funct3_decode[funct7_and_funct3] == 'and':
+            self.instr.operation = 'and'
+        elif funct7_and_funct3_decode[funct7_and_funct3] == 'or':
+            self.instr.operation = 'or'
+        elif funct7_and_funct3_decode[funct7_and_funct3] == 'xor':
+            self.instr.operation = 'xor'
+        self.instr.source1RegValue = self.simulator.registers[int(self.instr.binary[12:17], 2)][1]
+        self.instr.source2RegValue = self.simulator.registers[int(self.instr.binary[7:12], 2)][1]
+
+    def decode_itype(self):
+        self.instr.imm = self.instr.binary[0:12]
+        self.instr.rs1 = self.instr.binary[12:17]
+        self.instr.funct3 = self.instr.binary[17:20]
+        if itype_funct3_decode[self.instr.funct3] == 'addi':
+            self.instr.operation = 'addi'
+        elif itype_funct3_decode[self.instr.funct3] == 'andi':
+            self.instr.operation = 'andi'
+        elif itype_funct3_decode[self.instr.funct3] == 'ori':
+            self.instr.operation = 'ori'
+        elif itype_funct3_decode[self.instr.funct3] == 'xori':
+            self.instr.operation = 'xori'
+        self.instr.source1RegValue = self.simulator.registers[int(self.instr.rs1, 2)][1]
+        self.instr.source2RegValue = int(self.instr.imm, 2)
+
 
     def __str__(self):
         return 'Read from Register'
