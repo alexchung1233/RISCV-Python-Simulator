@@ -17,7 +17,10 @@ itype_funct3_decode = {
 opcode_decode = {
     '0110011': 'R-type',
     '0010011': 'I-type',
+    '0000011': 'Load',
+    '0100011': 'Store',
 }
+
 
 class RTypeInstruction:
     def __init__(self, s):
@@ -26,7 +29,7 @@ class RTypeInstruction:
         self.source1RegValue = None
         self.source2RegValue = None
 
-        #fields
+        # fields
         self.funct7 = None
         self.rs2 = None
         self.rs1 = None
@@ -63,11 +66,12 @@ class RTypeInstruction:
         self.rs2 = bin(int(s[3][1:])).replace("0b", "").zfill(5)
 
         self.instruction_repr = self.funct7 + self.rs2 + \
-               self.rs1 + self.funct3 + \
-               self.rd + self.opcode
+                                self.rs1 + self.funct3 + \
+                                self.rd + self.opcode
 
     def __repr__(self):
         return self.instruction_repr
+
 
 class ITypeInstruction:
     def __init__(self, s):
@@ -76,19 +80,18 @@ class ITypeInstruction:
         self.source1RegValue = None
         self.source2RegValue = None
 
-        #fields
+        # fields
         self.imm = None
         self.rs1 = None
         self.funct3 = None
         self.rd = None
         self.opcode = None
 
-
         self.funct3_mapping = {
             'addi': '000',
             'slti': '',
             'sltiu': '',
-            'xori':  '100',
+            'xori': '100',
             'or': '110',
             'andi': '111',
 
@@ -106,6 +109,7 @@ class ITypeInstruction:
 
     def __repr__(self):
         return self.instruction_repr
+
 
 class Nop():
     pass
@@ -144,6 +148,7 @@ class InstructionParser(object):
             for instr in instrCollection:
                 f.write(("%s\n" % instr))
 
+
 class PipelineSimulator(object):
     operations = {'add': '+', 'addi': '+', 'sub': '-', 'subi': '-',
                   'and': '&', 'andi': '&', 'or': '|', 'ori': '|',
@@ -165,7 +170,7 @@ class PipelineSimulator(object):
         self.pipeline = [
             FetchStage(None, self),
             WriteStage(None, self),
-            ReadStage(None, self),
+            DecodeStage(None, self),
             ExecStage(None, self),
             DataStage(None, self),
         ]
@@ -214,6 +219,7 @@ class PipelineSimulator(object):
             pi.advance()
         self.checkDone()
     '''
+
     def dump(self, instrCollection):
         filename = 'bin_dump'
         with open(filename, 'w') as f:
@@ -233,14 +239,14 @@ class PipelineSimulator(object):
         self.load_next_instruction()
         self.debug()
 
-        self.pipeline[2] = ReadStage(self.pipeline[0].instr, self)
+        self.pipeline[2] = DecodeStage(self.pipeline[0].instr, self)
         self.pipeline[2].advance()
         self.pipeline[0] = FetchStage(None, self)
         self.debug()
 
         self.pipeline[3] = ExecStage(self.pipeline[2].instr, self)
         self.pipeline[3].advance()
-        self.pipeline[2] = ReadStage(None, self)
+        self.pipeline[2] = DecodeStage(None, self)
         self.debug()
 
         self.pipeline[4] = DataStage(self.pipeline[3].instr, self)
@@ -310,6 +316,7 @@ class PipelineSimulator(object):
                 print(index, ": ", str(item))
     '''
 
+
 class PipelineInstruction():
     def __init__(self, instr_representation):
         self.binary = instr_representation
@@ -319,7 +326,7 @@ class PipelineInstruction():
         self.source2RegValue = None
         self.dest = None
 
-        #fields
+        # fields
         self.imm = None
         self.funct7 = None
         self.rs2 = None
@@ -327,8 +334,10 @@ class PipelineInstruction():
         self.funct3 = None
         self.rd = None
         self.opcode = None
+
     def __repr__(self):
         return self.binary
+
 
 class PipelineStage(object):
     def __init__(self, instruction, simulator):
@@ -362,7 +371,7 @@ class FetchStage(PipelineStage):
         return 'Fetch Stage\t'
 
 
-class ReadStage(PipelineStage):
+class DecodeStage(PipelineStage):
     def advance(self):
         """
         Read the necessary registers from the registers file
@@ -372,43 +381,30 @@ class ReadStage(PipelineStage):
             self.instr.opcode = self.instr.binary[25:]
             if opcode_decode[self.instr.opcode] == 'R-type':
                 self.decode_rtype()
-            elif opcode_decode[self.instr.opcode] == 'I-type':
+            elif opcode_decode[self.instr.opcode] == 'I-type' or  opcode_decode[self.instr.opcode] == 'Load':
                 self.decode_itype()
             else:
                 raise SyntaxError("Invalid opcode")
 
     def decode_rtype(self):
+        """Decode the R-type instruction fields within binary format"""
         self.instr.funct3 = self.instr.binary[17:20]
         self.instr.funct7 = self.instr.binary[0:7]
+        self.instr.rs1 = int(self.instr.binary[12:17], 2)
+        self.instr.rs2 = int(self.instr.binary[7:12], 2)
         funct7_and_funct3 = self.instr.funct7 + self.instr.funct3
-        if funct7_and_funct3_decode[funct7_and_funct3] == 'add':
-            self.instr.operation = 'add'
-        elif funct7_and_funct3_decode[funct7_and_funct3] == 'sub':
-            self.instr.operation = 'sub'
-        elif funct7_and_funct3_decode[funct7_and_funct3] == 'and':
-            self.instr.operation = 'and'
-        elif funct7_and_funct3_decode[funct7_and_funct3] == 'or':
-            self.instr.operation = 'or'
-        elif funct7_and_funct3_decode[funct7_and_funct3] == 'xor':
-            self.instr.operation = 'xor'
-        self.instr.source1RegValue = self.simulator.registers[int(self.instr.binary[12:17], 2)][1]
-        self.instr.source2RegValue = self.simulator.registers[int(self.instr.binary[7:12], 2)][1]
+        self.instr.operation = funct7_and_funct3_decode[funct7_and_funct3]
+        self.instr.source1RegValue = self.simulator.registers[self.instr.rs1][1]
+        self.instr.source2RegValue = self.simulator.registers[self.instr.rs2][1]
 
     def decode_itype(self):
+        """Decode the I-type instruction fields within binary format"""
         self.instr.imm = self.instr.binary[0:12]
         self.instr.rs1 = self.instr.binary[12:17]
         self.instr.funct3 = self.instr.binary[17:20]
-        if itype_funct3_decode[self.instr.funct3] == 'addi':
-            self.instr.operation = 'addi'
-        elif itype_funct3_decode[self.instr.funct3] == 'andi':
-            self.instr.operation = 'andi'
-        elif itype_funct3_decode[self.instr.funct3] == 'ori':
-            self.instr.operation = 'ori'
-        elif itype_funct3_decode[self.instr.funct3] == 'xori':
-            self.instr.operation = 'xori'
+        self.instr.operation = itype_funct3_decode[self.instr.funct3]
         self.instr.source1RegValue = self.simulator.registers[int(self.instr.rs1, 2)][1]
         self.instr.source2RegValue = int(self.instr.imm, 2)
-
 
     def __str__(self):
         return 'Read from Register'
@@ -422,10 +418,14 @@ class ExecStage(PipelineStage):
         """
 
         if self.instr is not None:
-            self.instr.result = eval(
-                "%d %s %d" % (
-                    self.instr.source1RegValue, self.simulator.operations[self.instr.operation], self.instr.source2RegValue))
-            print(self.instr.result)
+            #calculate the offset of the lw and sw instructions
+            if opcode_decode[self.instr.opcode] == 'Load':
+                self.instr.source1RegValue = self.instr.source1RegValue + int(self.instr.imm)
+            else:
+                self.instr.result = eval(
+                    "%d %s %d" % (
+                        self.instr.source1RegValue, self.simulator.operations[self.instr.operation],
+                        self.instr.source2RegValue))
 
     def __str__(self):
         return 'Execute Stage\t'
@@ -438,7 +438,9 @@ class DataStage(PipelineStage):
         and then read from main memory second
         """
         # skip for now since only doing r-type
-        pass
+        if self.instr is not None:
+            if opcode_decode[self.instr.opcode] == 'Load':
+                self.simulator.mainmemory[self.instr.source2RegValue] = self.instr.source1RegValue
 
     def __str__(self):
         return 'Main Memory'
